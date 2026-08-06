@@ -29,28 +29,33 @@ type StepResult struct {
 	Outcome StepOutcome
 }
 
-func EvalContextForWorkflow(w *model.Workflow) *hcl.EvalContext {
+func EvalContextForWorkflow(w *model.Workflow, variables map[string]string) (*hcl.EvalContext, map[string]cty.Value) {
 	vars := make(map[string]cty.Value)
 	for _, v := range w.Variables {
-		vars[v.Name] = cty.StringVal(v.Default)
+		if val, ok := variables[v.Name]; ok {
+			vars[v.Name] = cty.StringVal(val)
+		} else {
+			vars[v.Name] = cty.StringVal(v.Default)
+		}
 	}
+	steps := make(map[string]cty.Value)
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{
-			"var": cty.ObjectVal(vars),
+			"var":   cty.ObjectVal(vars),
+			"steps": cty.ObjectVal(steps),
 		},
 		Functions: workflowFunctions(),
-	}
+	}, steps
 }
 
-func RunFile(filename string, src []byte, reporter Reporter) error {
+func RunFile(filename string, src []byte, reporter Reporter, variables map[string]string) error {
 	cfg := &model.Config{}
 	if err := hclsimple.Decode(filename, src, nil, cfg); err != nil {
 		return err
 	}
 
 	for _, workflow := range cfg.Workflows {
-		ctx := EvalContextForWorkflow(workflow)
-		stepOutputs := map[string]cty.Value{}
+		ctx, steps := EvalContextForWorkflow(workflow, variables)
 		stepStatus := map[string]StepOutcome{}
 
 		levels, err := BuildLevels(workflow.Steps)
@@ -145,10 +150,10 @@ func RunFile(filename string, src []byte, reporter Reporter) error {
 			for res := range results {
 				stepStatus[res.Id] = res.Outcome
 				if res.Outcome == OutcomeSucceeded && res.Outputs != nil {
-					stepOutputs[res.Id] = cty.ObjectVal(res.Outputs)
+					steps[res.Id] = cty.ObjectVal(res.Outputs)
 				}
 			}
-			ctx.Variables["steps"] = cty.ObjectVal(stepOutputs)
+			ctx.Variables["steps"] = cty.ObjectVal(steps)
 
 			reporter.Emit(Event{Workflow: workflow.Id, Level: levelIdx, Status: StatusLevelDone})
 		}
