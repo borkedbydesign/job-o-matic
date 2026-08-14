@@ -6,7 +6,7 @@ require (
 	github.com/PaesslerAG/jsonpath v0.1.1
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
-	github.com/spf13/pflag v1.0.2
+	github.com/urfave/cli/v3 v3.10.1
 	github.com/vbauerster/mpb/v8 v8.15.1
 	github.com/zclconf/go-cty v1.16.3
 	golang.org/x/sync v0.14.0

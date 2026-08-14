@@ -37,11 +37,9 @@ func (s *ShellStep) Run(ctx context.Context, evalCtx *hcl.EvalContext) (map[stri
 
 	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
 
-	// stream to console
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// also capture stdout/stderr for returning
 	var stdoutBuf, stderrBuf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
@@ -54,11 +52,9 @@ func (s *ShellStep) Run(ctx context.Context, evalCtx *hcl.EvalContext) (map[stri
 		if errors.As(runErr, &ee) {
 			exitCode = ee.ExitCode()
 		} else {
-			// non-exit-error (spawn/exec failure, context cancel, etc.)
 			return nil, fmt.Errorf("failed to run command %q: %w", command, runErr)
 		}
 
-		// return error details (not a hard failure)
 		result := cty.ObjectVal(map[string]cty.Value{
 			"exit_code": cty.NumberIntVal(int64(exitCode)),
 			"stdout":    cty.StringVal(stdoutBuf.String()),

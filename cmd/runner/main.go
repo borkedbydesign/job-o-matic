@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"job-o-matic/engine"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
 
-	"github.com/spf13/pflag"
+	"github.com/urfave/cli/v3"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -90,40 +92,18 @@ func runWorkflow(r *engine.ChanReporter, debug bool) {
 		fmt.Fprintln(os.Stdout, line)
 	}
 }
-func run(args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: job-o-matic run <file> [flags]")
-		return 2
-	}
-	filename := args[0]
-
-	fs := pflag.NewFlagSet("run", pflag.ContinueOnError)
-	debug := fs.BoolP("debug", "d", false, "print step outputs")
-	workdir := fs.StringP("workdir", "w", "", "working directory to run from (default: current)")
-	varsRaw := fs.StringArrayP("var", "", nil, "set a variable KEY=VALUE (repeatable)")
-	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: job-o-matic run <file> [flags]")
-		fmt.Fprintln(os.Stderr)
-		fmt.Fprintln(os.Stderr, "Flags:")
-		fmt.Fprintln(os.Stderr, fs.FlagUsages())
-	}
-	if err := fs.Parse(args[1:]); err != nil {
-		return 2
-	}
-
+func run(filename string, workdir string, debug bool, varsRaw []string) error {
 	content, err := os.ReadFile(filename)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to open %q: %v\n", filename, err)
-		return 1
+		return errors.New(fmt.Sprintf("failed to open %q: %v\n", filename, err))
 	}
-	if *workdir != "" {
-		if err := os.Chdir(*workdir); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to chdir %q: %v\n", *workdir, err)
-			return 1
+	if workdir != "" {
+		if err := os.Chdir(workdir); err != nil {
+			return errors.New(fmt.Sprintf("failed to chdir %q: %v\n", workdir, err))
 		}
 	}
 
-	vars := parseVars(*varsRaw)
+	vars := parseVars(varsRaw)
 
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -131,7 +111,7 @@ func run(args []string) int {
 	reporter := engine.NewChanReporter(64)
 	done := make(chan struct{})
 	go func() {
-		runWorkflow(reporter, *debug)
+		runWorkflow(reporter, debug)
 		close(done)
 	}()
 
@@ -151,27 +131,43 @@ func run(args []string) int {
 	reporter.Close()
 	<-done
 	if runErr != nil {
-		fmt.Fprintf(os.Stderr, "run failed: %v\n", runErr)
-		return 1
+		return errors.New(fmt.Sprintf("run failed: %v\n", runErr))
 	}
-	return 0
+	return nil
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: job-o-matic run <file> [flags]")
-		os.Exit(2)
+	cmd := &cli.Command{
+		Name:                  "job-o-matic",
+		EnableShellCompletion: true,
+		Commands: []*cli.Command{
+			{
+				Name:    "run",
+				Aliases: []string{"r"},
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{
+						Name:  "var",
+						Usage: "variables for the workflow",
+					},
+					&cli.BoolFlag{
+						Name:  "debug",
+						Usage: "enable debug mode",
+					},
+					&cli.StringFlag{
+						Name:  "workdir",
+						Usage: "set working directory",
+					},
+				},
+				Usage: "run a workflow",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					run(cmd.Args().Get(0), cmd.String("workdir"), cmd.Bool("debug"), cmd.StringSlice("var"))
+					return nil
+				},
+			},
+		},
 	}
-	var code int
-	switch os.Args[1] {
-	case "run":
-		code = run(os.Args[2:])
-	case "help", "-h", "--help":
-		fmt.Fprintln(os.Stderr, "Usage: job-o-matic run <file> [flags]")
-		code = 0
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
-		code = 2
+
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		log.Fatal(err)
 	}
-	os.Exit(code)
 }
