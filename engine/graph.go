@@ -56,7 +56,7 @@ func BuildLevels(steps []*model.Step) ([][]*model.Step, error) {
 	}
 
 	if processed != len(steps) {
-		return nil, errors.New("cycle detected or dangling dependency in workflow")
+		return nil, errors.New("circular dependency detected in workflow")
 	}
 
 	levels := make(map[int][]*model.Step)
